@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Street Cast Test</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+      background: #f0f0f0;
+    }
+
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+    }
+
+    .status {
+      padding: 10px;
+      margin: 10px 0;
+      border-radius: 4px;
+    }
+
+    .success {
+      background: #d4edda;
+      color: #155724;
+    }
+
+    .error {
+      background: #f8d7da;
+      color: #721c24;
+    }
+
+    .info {
+      background: #d1ecf1;
+      color: #0c5460;
+    }
+
+    button {
+      background: #007bff;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 4px;
+      cursor: pointer;
+      margin: 5px;
+    }
+
+    button:hover {
+      background: #0056b3;
+    }
+
+    #video-container {
+      width: 100%;
+      height: 300px;
+      background: #000;
+      margin: 20px 0;
+      border-radius: 4px;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="container">
+    <h1>Street Cast PWA Test</h1>
+
+    <div id="status" class="status info">
+      Initializing test...
+    </div>
+
+    <div id="video-container"></div>
+
+    <div>
+      <button onclick="testManifest()">Test Manifest API</button>
+      <button onclick="testVideoManager()">Test Video Manager</button>
+      <button onclick="testImpressionTracker()">Test Impression Tracker</button>
+      <button onclick="showDebugInfo()">Show Debug Info</button>
+    </div>
+
+    <div id="debug-info"
+      style="margin-top: 20px; padding: 10px; background: #f8f9fa; border-radius: 4px; display: none;">
+      <h3>Debug Information</h3>
+      <pre id="debug-content"></pre>
+    </div>
+  </div>
+
+  <script type="module">
+    import { StreetCastApp } from './src/app.js';
+    import { VideoManager } from './src/video-manager.js';
+    import { ImpressionTracker } from './src/impression-tracker.js';
+    import { CacheManager } from './src/utils/storage.js';
+
+    let app = null;
+    let videoManager = null;
+    let impressionTracker = null;
+    let cacheManager = null;
+
+    // Initialize components
+    try {
+      cacheManager = new CacheManager();
+      videoManager = new VideoManager(cacheManager);
+      impressionTracker = new ImpressionTracker({
+        deviceId: 'test-device-123',
+        serverUrl: 'http://localhost:3000',
+        pollInterval: 30000,
+        cacheSize: 100 * 1024 * 1024, // 100MB
+        maxVideos: 5
+      });
+
+      app = new StreetCastApp({
+        deviceId: 'test-device-123',
+        serverUrl: 'http://localhost:3000',
+        pollInterval: 30000,
+        cacheSize: 100 * 1024 * 1024,
+        maxVideos: 5
+      });
+
+      // Setup video container
+      const container = document.getElementById('video-container');
+      container.appendChild(videoManager.getVideoElement());
+
+      updateStatus('Components initialized successfully', 'success');
+    } catch (error) {
+      updateStatus('Failed to initialize: ' + error.message, 'error');
+    }
+
+    // Test functions
+    window.testManifest = async function () {
+      try {
+        updateStatus('Testing manifest API...', 'info');
+        const response = await fetch('http://localhost:3000/api/manifest/test-device-123');
+        if (response.ok) {
+          const manifest = await response.json();
+          updateStatus('Manifest API working! Received ' + manifest.creatives.length + ' videos', 'success');
+        } else {
+          updateStatus('Manifest API returned ' + response.status, 'error');
+        }
+      } catch (error) {
+        updateStatus('Manifest API test failed: ' + error.message, 'error');
+      }
+    };
+
+    window.testVideoManager = function () {
+      try {
+        updateStatus('Testing video manager...', 'info');
+        const playlist = [
+          { id: 'test1', url: 'https://sample-videos.com/zip/10/mp4/SampleVideo_1280x720_1mb.mp4', duration: 30, campaignId: 'c1', campaignName: 'Test Campaign 1' },
+          { id: 'test2', url: 'https://sample-videos.com/zip/10/mp4/SampleVideo_1280x720_2mb.mp4', duration: 60, campaignId: 'c2', campaignName: 'Test Campaign 2' }
+        ];
+
+        videoManager.updatePlaylist(playlist);
+        updateStatus('Video manager test completed! Playlist has ' + videoManager.getPlaylist().length + ' videos', 'success');
+      } catch (error) {
+        updateStatus('Video manager test failed: ' + error.message, 'error');
+      }
+    };
+
+    window.testImpressionTracker = function () {
+      try {
+        updateStatus('Testing impression tracker...', 'info');
+        impressionTracker.reportImpression('test-creative-123');
+        updateStatus('Impression tracker test completed!', 'success');
+      } catch (error) {
+        updateStatus('Impression tracker test failed: ' + error.message, 'error');
+      }
+    };
+
+    window.showDebugInfo = function () {
+      const debugDiv = document.getElementById('debug-info');
+      const debugContent = document.getElementById('debug-content');
+
+      if (app) {
+        const state = app.getState();
+        const config = app.getConfig();
+
+        debugContent.textContent = JSON.stringify({
+          state: state,
+          config: config,
+          videoManager: {
+            playlist: videoManager.getPlaylist(),
+            currentIndex: videoManager.getCurrentIndex(),
+            isPlaying: videoManager.isPlaying()
+          },
+          impressionTracker: impressionTracker.getRetryStats()
+        }, null, 2);
+
+        debugDiv.style.display = debugDiv.style.display === 'none' ? 'block' : 'none';
+      }
+    };
+
+    function updateStatus(message, type) {
+      const statusDiv = document.getElementById('status');
+      statusDiv.textContent = message;
+      statusDiv.className = 'status ' + type;
+    }
+
+    // Auto-test on load
+    setTimeout(() => {
+      updateStatus('Ready for testing! Click buttons above to test components.', 'success');
+    }, 1000);
+  </script>
+</body>
+
+</html>

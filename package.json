@@ -1,0 +1,44 @@
+{
+  "name": "street-cast-pwa",
+  "version": "1.0.0",
+  "description": "PWA for advertising display on Raspberry Pi devices",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "test": "jest",
+    "test:e2e": "playwright test",
+    "lint": "eslint src --ext .ts",
+    "lint:fix": "eslint src --ext .ts --fix",
+    "format": "prettier --write src/**/*.ts"
+  },
+  "dependencies": {
+    "dexie": "^3.2.4",
+    "workbox-window": "^7.0.0"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.8",
+    "@typescript-eslint/eslint-plugin": "^6.12.0",
+    "@typescript-eslint/parser": "^6.12.0",
+    "@vitejs/plugin-legacy": "^5.0.0",
+    "eslint": "^8.54.0",
+    "jest": "^29.7.0",
+    "playwright": "^1.40.0",
+    "prettier": "^3.1.0",
+    "ts-jest": "^29.1.1",
+    "typescript": "^5.3.2",
+    "vite": "^5.0.0",
+    "vite-plugin-pwa": "^0.17.4",
+    "workbox-cli": "^7.0.0"
+  },
+  "keywords": [
+    "pwa",
+    "advertising",
+    "raspberry-pi",
+    "video-player",
+    "offline"
+  ],
+  "author": "Street Cast Team",
+  "license": "MIT"
+}

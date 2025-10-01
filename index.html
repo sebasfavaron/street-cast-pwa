@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Street Cast Device</title>
+  <meta name="description" content="Advertising display for connected screens">
+  <meta name="theme-color" content="#000000">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="StreetCast">
+
+  <!-- PWA Manifest -->
+  <link rel="manifest" href="/manifest.json">
+
+  <!-- Icons -->
+  <link rel="icon" type="image/png" sizes="192x192" href="/assets/icon-192.png">
+  <link rel="apple-touch-icon" href="/assets/icon-192.png">
+
+  <!-- Styles -->
+  <link rel="stylesheet" href="/css/styles.css">
+</head>
+
+<body>
+  <div id="app">
+    <!-- Loading Screen -->
+    <div id="loading-screen" class="loading-screen">
+      <div class="loading-content">
+        <div class="loading-spinner"></div>
+        <h1>Street Cast</h1>
+        <p>Initializing advertising display...</p>
+        <div class="loading-status" id="loading-status">Connecting to server...</div>
+      </div>
+    </div>
+
+    <!-- Main Video Container -->
+    <div id="video-container" class="video-container">
+      <!-- Video element will be inserted here by JavaScript -->
+    </div>
+
+    <!-- Error Overlay -->
+    <div id="error-overlay" class="error-overlay hidden">
+      <div class="error-content">
+        <h2>Connection Error</h2>
+        <p id="error-message">Unable to connect to server. Playing cached content.</p>
+        <button id="retry-button" class="retry-button">Retry Connection</button>
+      </div>
+    </div>
+
+    <!-- Debug Panel (hidden in production) -->
+    <div id="debug-panel" class="debug-panel hidden">
+      <div class="debug-content">
+        <h3>Debug Information</h3>
+        <div id="debug-info">
+          <p><strong>Status:</strong> <span id="debug-status">Loading...</span></p>
+          <p><strong>Online:</strong> <span id="debug-online">Unknown</span></p>
+          <p><strong>Current Video:</strong> <span id="debug-video">None</span></p>
+          <p><strong>Playlist Length:</strong> <span id="debug-playlist">0</span></p>
+          <p><strong>Error Count:</strong> <span id="debug-errors">0</span></p>
+        </div>
+        <button id="debug-toggle" class="debug-toggle">Hide Debug</button>
+      </div>
+    </div>
+
+    <!-- Debug Toggle Button -->
+    <button id="debug-button" class="debug-button">Debug</button>
+  </div>
+
+  <!-- Service Worker Registration -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js')
+          .then((registration) => {
+            console.log('SW registered: ', registration);
+          })
+          .catch((registrationError) => {
+            console.log('SW registration failed: ', registrationError);
+          });
+      });
+    }
+  </script>
+
+  <!-- Main Application -->
+  <script type="module" src="/src/app.ts"></script>
+
+  <!-- Debug Script -->
+  <script>
+    // Debug panel functionality
+    let debugVisible = false;
+    const debugButton = document.getElementById('debug-button');
+    const debugPanel = document.getElementById('debug-panel');
+    const debugToggle = document.getElementById('debug-toggle');
+    const retryButton = document.getElementById('retry-button');
+
+    debugButton.addEventListener('click', () => {
+      debugVisible = !debugVisible;
+      debugPanel.classList.toggle('hidden', !debugVisible);
+      debugButton.textContent = debugVisible ? 'Hide Debug' : 'Debug';
+    });
+
+    debugToggle.addEventListener('click', () => {
+      debugVisible = false;
+      debugPanel.classList.add('hidden');
+      debugButton.textContent = 'Debug';
+    });
+
+    retryButton.addEventListener('click', () => {
+      if (window.streetCastApp) {
+        window.streetCastApp.pollManifest();
+      }
+    });
+
+    // Update debug info periodically
+    setInterval(() => {
+      if (window.streetCastApp && debugVisible) {
+        const state = window.streetCastApp.getState();
+        document.getElementById('debug-status').textContent = state.isPlaying ? 'Playing' : 'Paused';
+        document.getElementById('debug-online').textContent = state.isOnline ? 'Yes' : 'No';
+        document.getElementById('debug-video').textContent = state.currentVideo ? state.currentVideo.id : 'None';
+        document.getElementById('debug-playlist').textContent = state.playlist.length.toString();
+        document.getElementById('debug-errors').textContent = state.errorCount.toString();
+      }
+    }, 1000);
+
+    // Hide loading screen after app initialization
+    window.addEventListener('load', () => {
+      setTimeout(() => {
+        const loadingScreen = document.getElementById('loading-screen');
+        if (loadingScreen) {
+          loadingScreen.style.opacity = '0';
+          setTimeout(() => {
+            loadingScreen.style.display = 'none';
+          }, 500);
+        }
+      }, 2000);
+    });
+  </script>
+</body>
+
+</html>
