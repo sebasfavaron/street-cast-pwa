@@ -108,9 +108,16 @@
 
     retryButton.addEventListener('click', () => {
       if (window.streetCastApp) {
-        window.streetCastApp.pollManifest();
+        window.streetCastApp.refreshManifest();
       }
     });
+
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('debug') === 'true') {
+      debugVisible = true;
+      debugPanel.classList.remove('hidden');
+      debugButton.textContent = 'Hide Debug';
+    }
 
     // Update debug info periodically
     setInterval(() => {
@@ -123,19 +130,6 @@
         document.getElementById('debug-errors').textContent = state.errorCount.toString();
       }
     }, 1000);
-
-    // Hide loading screen after app initialization
-    window.addEventListener('load', () => {
-      setTimeout(() => {
-        const loadingScreen = document.getElementById('loading-screen');
-        if (loadingScreen) {
-          loadingScreen.style.opacity = '0';
-          setTimeout(() => {
-            loadingScreen.style.display = 'none';
-          }, 500);
-        }
-      }, 2000);
-    });
   </script>
 </body>
 

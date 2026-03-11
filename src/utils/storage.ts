@@ -109,11 +109,23 @@ export class CacheManager {
     }
 
     // Check if we still need to clean up
-    const remainingVideos = await this.db.videos.toArray();
-    const remainingSize = remainingVideos.reduce((sum, video) => sum + video.size, 0);
+    const remainingVideos = (await this.db.videos.toArray()).sort(
+      (a, b) => a.downloadedAt - b.downloadedAt
+    );
+    let projectedSize = remainingVideos.reduce((sum, video) => sum + video.size, 0);
 
-    if (remainingSize > this.MAX_CACHE_SIZE || remainingVideos.length > this.MAX_VIDEOS) {
-      const videosToDelete = remainingVideos.slice(0, remainingVideos.length - this.MAX_VIDEOS);
+    if (projectedSize > this.MAX_CACHE_SIZE || remainingVideos.length > this.MAX_VIDEOS) {
+      const videosToDelete = [];
+      while (
+        remainingVideos.length - videosToDelete.length > this.MAX_VIDEOS ||
+        projectedSize > this.MAX_CACHE_SIZE
+      ) {
+        const candidate: CachedVideo | undefined = remainingVideos[videosToDelete.length];
+        if (!candidate) break;
+        videosToDelete.push(candidate);
+        projectedSize -= candidate.size;
+      }
+
       await this.db.videos.bulkDelete(videosToDelete.map((v) => v.id));
       await this.db.metadata.bulkDelete(videosToDelete.map((v) => v.id));
     }
