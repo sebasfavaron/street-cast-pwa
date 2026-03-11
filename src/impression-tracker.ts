@@ -1,5 +1,9 @@
 import { ImpressionRequest, AppConfig } from '@/types';
 
+function getApiBaseUrl(serverUrl: string): string {
+  return serverUrl.trim().replace(/\/+$/, '');
+}
+
 export class ImpressionTracker {
   private config: AppConfig;
   private retryQueue: ImpressionRequest[] = [];
@@ -30,7 +34,7 @@ export class ImpressionTracker {
   }
 
   private async sendImpression(impression: ImpressionRequest): Promise<void> {
-    const url = `${this.config.serverUrl}/api/impression`;
+    const url = `${getApiBaseUrl(this.config.serverUrl)}/api/impression`;
 
     const response = await fetch(url, {
       method: 'POST',
@@ -151,7 +155,7 @@ export class ImpressionTracker {
 
   // Batch impression reporting for efficiency
   async reportBatchImpressions(impressions: ImpressionRequest[]): Promise<void> {
-    const url = `${this.config.serverUrl}/api/impressions/batch`;
+    const url = `${getApiBaseUrl(this.config.serverUrl)}/api/impressions/batch`;
 
     try {
       const response = await fetch(url, {
@@ -177,7 +181,7 @@ export class ImpressionTracker {
   // Health check
   async healthCheck(): Promise<{ status: 'healthy' | 'degraded' | 'unhealthy'; details: any }> {
     try {
-      const url = `${this.config.serverUrl}/api/health`;
+      const url = `${getApiBaseUrl(this.config.serverUrl)}/api/health`;
       const response = await fetch(url, { method: 'GET' });
 
       if (response.ok) {

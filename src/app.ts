@@ -31,6 +31,9 @@ function normalizeServerUrl(value?: string): string {
   return (value ?? '').trim().replace(/\/+$/, '');
 }
 
+function getApiBaseUrl(serverUrl: string): string {
+  return normalizeServerUrl(serverUrl);
+}
 function getNumericOverride(value: string | null): number | undefined {
   if (!value) return undefined;
   const parsed = Number(value);
@@ -189,10 +192,7 @@ export class StreetCastApp {
   }
 
   private startManifestPolling(): void {
-    if (!this.config.serverUrl || this.manifestPoller) {
-      if (!this.config.serverUrl) {
-        this.setLoadingStatus('Waiting for serverUrl configuration...');
-      }
+    if (this.manifestPoller) {
       return;
     }
 
@@ -202,17 +202,10 @@ export class StreetCastApp {
   }
 
   async refreshManifest(): Promise<void> {
-    if (!this.config.serverUrl) {
-      this.showError(
-        'Missing serverUrl. Open with ?serverUrl=https://host&deviceId=device-123 to fetch a playlist.'
-      );
-      return;
-    }
-
     this.setLoadingStatus(`Syncing device ${this.config.deviceId}...`);
 
     try {
-      const response = await fetch(`${this.config.serverUrl}/api/manifest/${this.config.deviceId}`, {
+      const response = await fetch(`${getApiBaseUrl(this.config.serverUrl)}/api/manifest/${this.config.deviceId}`, {
         cache: 'no-store',
       });
 
