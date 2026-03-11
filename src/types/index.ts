@@ -57,7 +57,16 @@ export interface AppState {
   currentIndex: number
   isPlaying: boolean
   lastManifestUpdate: number
+  lastManifestVersion: string | null
   errorCount: number
+}
+
+export interface RuntimeConfigSource {
+  deviceId?: string
+  serverUrl?: string
+  pollInterval?: number
+  cacheSize?: number
+  maxVideos?: number
 }
 
 // Error Types
@@ -73,6 +82,12 @@ export interface VideoEvent {
   type: 'play' | 'pause' | 'ended' | 'error' | 'loadstart' | 'loadeddata'
   video: Creative
   timestamp: number
+}
+
+export interface VideoLoadedEvent {
+  video: Creative
+  fromCache: boolean
+  fallback?: 'remote'
 }
 
 export interface ManifestEvent {
@@ -93,8 +108,8 @@ export interface StorageStats {
 
 // Configuration Constants
 export const DEFAULT_CONFIG: AppConfig = {
-  deviceId: process.env.DEVICE_ID || 'device_123',
-  serverUrl: process.env.SERVER_URL || 'https://api.streetcast.com',
+  deviceId: 'demo-device',
+  serverUrl: '',
   pollInterval: 2 * 60 * 1000, // 2 minutes
   cacheSize: 2 * 1024 * 1024 * 1024, // 2GB
   maxVideos: 10
