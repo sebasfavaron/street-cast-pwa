@@ -6,10 +6,109 @@ import {
   AppState,
   ManifestResponse,
   Creative,
+  VideoEvent,
+  VideoLoadedEvent,
   AppError,
   ERROR_TYPES,
   DEFAULT_CONFIG,
+  RuntimeConfigSource,
 } from './types';
+
+declare global {
+  interface Window {
+    streetCastApp?: StreetCastApp;
+    __STREET_CAST_CONFIG__?: RuntimeConfigSource;
+  }
+}
+
+const CONFIG_STORAGE_KEY = 'street-cast-runtime-config';
+const importMetaEnv =
+  typeof import.meta !== 'undefined'
+    ? ((import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env ?? {})
+    : {};
+
+function normalizeServerUrl(value?: string): string {
+  return (value ?? '').trim().replace(/\/+$/, '');
+}
+
+function getNumericOverride(value: string | null): number | undefined {
+  if (!value) return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function coercePositiveNumber(value: number | undefined, fallback: number): number {
+  if (value == null || value <= 0) {
+    return fallback;
+  }
+
+  return value;
+}
+
+function loadStoredConfig(): RuntimeConfigSource {
+  try {
+    const raw = window.localStorage.getItem(CONFIG_STORAGE_KEY);
+    return raw ? (JSON.parse(raw) as RuntimeConfigSource) : {};
+  } catch (error) {
+    console.warn('Failed to load stored runtime config', error);
+    return {};
+  }
+}
+
+function getQueryConfig(): RuntimeConfigSource {
+  const params = new URLSearchParams(window.location.search);
+  return {
+    deviceId: params.get('deviceId') ?? params.get('device') ?? undefined,
+    serverUrl: params.get('serverUrl') ?? params.get('server') ?? undefined,
+    pollInterval: getNumericOverride(params.get('pollInterval')),
+    cacheSize: getNumericOverride(params.get('cacheSize')),
+    maxVideos: getNumericOverride(params.get('maxVideos')),
+  };
+}
+
+function saveRuntimeConfig(config: AppConfig): void {
+  try {
+    window.localStorage.setItem(
+      CONFIG_STORAGE_KEY,
+      JSON.stringify({
+        deviceId: config.deviceId,
+        serverUrl: config.serverUrl,
+        pollInterval: config.pollInterval,
+        cacheSize: config.cacheSize,
+        maxVideos: config.maxVideos,
+      })
+    );
+  } catch (error) {
+    console.warn('Failed to persist runtime config', error);
+  }
+}
+
+function resolveConfig(overrides: Partial<AppConfig>): AppConfig {
+  const envConfig: RuntimeConfigSource = {
+    deviceId: importMetaEnv.VITE_DEVICE_ID,
+    serverUrl: importMetaEnv.VITE_SERVER_URL,
+    pollInterval: getNumericOverride(importMetaEnv.VITE_POLL_INTERVAL ?? null),
+    cacheSize: getNumericOverride(importMetaEnv.VITE_CACHE_SIZE ?? null),
+    maxVideos: getNumericOverride(importMetaEnv.VITE_MAX_VIDEOS ?? null),
+  };
+
+  const merged = {
+    ...DEFAULT_CONFIG,
+    ...envConfig,
+    ...window.__STREET_CAST_CONFIG__,
+    ...loadStoredConfig(),
+    ...getQueryConfig(),
+    ...overrides,
+  };
+
+  return {
+    deviceId: (merged.deviceId ?? DEFAULT_CONFIG.deviceId).trim() || DEFAULT_CONFIG.deviceId,
+    serverUrl: normalizeServerUrl(merged.serverUrl),
+    pollInterval: coercePositiveNumber(merged.pollInterval, DEFAULT_CONFIG.pollInterval),
+    cacheSize: coercePositiveNumber(merged.cacheSize, DEFAULT_CONFIG.cacheSize),
+    maxVideos: Math.max(1, Math.floor(coercePositiveNumber(merged.maxVideos, DEFAULT_CONFIG.maxVideos))),
+  };
+}
 
 export class StreetCastApp {
   private config: AppConfig;
@@ -17,16 +116,17 @@ export class StreetCastApp {
   private videoManager: VideoManager;
   private impressionTracker: ImpressionTracker;
   private cacheManager: CacheManager;
-  private manifestPoller: NodeJS.Timeout | null = null;
+  private manifestPoller: ReturnType<typeof setInterval> | null = null;
   private isInitialized = false;
 
   constructor(config: Partial<AppConfig> = {}) {
-    this.config = { ...DEFAULT_CONFIG, ...config };
+    this.config = resolveConfig(config);
     this.state = this.createInitialState();
     this.cacheManager = new CacheManager(this.config.cacheSize, this.config.maxVideos);
     this.videoManager = new VideoManager(this.cacheManager);
     this.impressionTracker = new ImpressionTracker(this.config);
 
+    saveRuntimeConfig(this.config);
     this.setupEventListeners();
   }
 
@@ -38,21 +138,19 @@ export class StreetCastApp {
       currentIndex: 0,
       isPlaying: false,
       lastManifestUpdate: 0,
+      lastManifestVersion: null,
       errorCount: 0,
     };
   }
 
   private setupEventListeners(): void {
-    // Network status
     window.addEventListener('online', () => this.handleOnline());
     window.addEventListener('offline', () => this.handleOffline());
 
-    // Video events
-    this.videoManager.on('videoEvent', (event: any) => this.handleVideoEvent(event));
-    this.videoManager.on('videoLoaded', (data: any) => this.handleVideoLoaded(data));
-    this.videoManager.on('error', (error: any) => this.handleError(error));
+    this.videoManager.on('videoEvent', (event) => this.handleVideoEvent(event));
+    this.videoManager.on('videoLoaded', (data) => this.handleVideoLoaded(data));
+    this.videoManager.on('error', (error) => this.handleError(error));
 
-    // Visibility change (for kiosk mode)
     document.addEventListener('visibilitychange', () => this.handleVisibilityChange());
   }
 
@@ -60,19 +158,14 @@ export class StreetCastApp {
     if (this.isInitialized) return;
 
     try {
-      console.log('Initializing Street Cast App...');
-
-      // Setup video element in DOM
+      this.setLoadingStatus('Preparing cached content...');
       this.setupVideoElement();
-
-      // Start manifest polling
-      this.startManifestPolling();
-
-      // Load cached videos
       await this.loadCachedVideos();
-
+      await this.refreshManifest();
+      this.startManifestPolling();
+      this.hideLoadingScreen();
       this.isInitialized = true;
-      console.log('Street Cast App initialized successfully');
+      console.log('Street Cast App initialized successfully', this.config);
     } catch (error) {
       console.error('Failed to initialize app:', error);
       this.handleError({
@@ -86,42 +179,59 @@ export class StreetCastApp {
 
   private setupVideoElement(): void {
     const container = document.getElementById('video-container');
-    if (container) {
+    if (!container) {
+      throw new Error('Video container not found in DOM');
+    }
+
+    if (!container.contains(this.videoManager.getVideoElement())) {
       container.appendChild(this.videoManager.getVideoElement());
-    } else {
-      console.error('Video container not found in DOM');
     }
   }
 
   private startManifestPolling(): void {
-    // Initial poll
-    this.pollManifest();
+    if (!this.config.serverUrl || this.manifestPoller) {
+      if (!this.config.serverUrl) {
+        this.setLoadingStatus('Waiting for serverUrl configuration...');
+      }
+      return;
+    }
 
-    // Set up interval
     this.manifestPoller = setInterval(() => {
-      this.pollManifest();
+      void this.refreshManifest();
     }, this.config.pollInterval);
   }
 
-  private async pollManifest(): Promise<void> {
+  async refreshManifest(): Promise<void> {
+    if (!this.config.serverUrl) {
+      this.showError(
+        'Missing serverUrl. Open with ?serverUrl=https://host&deviceId=device-123 to fetch a playlist.'
+      );
+      return;
+    }
+
+    this.setLoadingStatus(`Syncing device ${this.config.deviceId}...`);
+
     try {
-      const response = await fetch(`${this.config.serverUrl}/api/manifest/${this.config.deviceId}`);
+      const response = await fetch(`${this.config.serverUrl}/api/manifest/${this.config.deviceId}`, {
+        cache: 'no-store',
+      });
 
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
 
       const manifest: ManifestResponse = await response.json();
-      await this.updatePlaylist(manifest.creatives);
+      await this.applyManifest(manifest);
 
       this.state.lastManifestUpdate = Date.now();
+      this.state.lastManifestVersion = manifest.version;
       this.state.errorCount = 0;
+      this.hideError();
+      this.hideLoadingScreen();
 
       console.log(`Manifest updated with ${manifest.creatives.length} videos`);
     } catch (error) {
       console.error('Failed to fetch manifest:', error);
-      this.state.errorCount++;
-
       this.handleError({
         type: ERROR_TYPES.MANIFEST,
         message: 'Failed to fetch manifest',
@@ -131,77 +241,101 @@ export class StreetCastApp {
     }
   }
 
-  private async updatePlaylist(creatives: Creative[]): Promise<void> {
-    this.state.playlist = creatives;
-    await this.videoManager.updatePlaylist(creatives);
+  private async applyManifest(manifest: ManifestResponse): Promise<void> {
+    const nextSignature = manifest.creatives.map((creative) => creative.id).join('|');
+    const currentSignature = this.state.playlist.map((creative) => creative.id).join('|');
+
+    if (
+      manifest.version === this.state.lastManifestVersion &&
+      nextSignature === currentSignature &&
+      this.state.playlist.length > 0
+    ) {
+      return;
+    }
+
+    this.state.playlist = manifest.creatives;
+    await this.videoManager.updatePlaylist(manifest.creatives);
+    this.state.currentIndex = this.videoManager.getCurrentIndex();
   }
 
   private async loadCachedVideos(): Promise<void> {
     try {
       const cachedVideos = await this.cacheManager.getAllMetadata();
-      if (cachedVideos.length > 0) {
-        console.log(`Loaded ${cachedVideos.length} cached videos`);
-        // Convert metadata to creatives for playback
-        const creatives: Creative[] = cachedVideos.map((meta) => ({
-          id: meta.id,
-          url: meta.url,
-          duration: meta.duration,
-          campaignId: meta.campaignId,
-          campaignName: meta.campaignName,
-        }));
-        await this.videoManager.updatePlaylist(creatives);
+      if (cachedVideos.length === 0) {
+        this.setLoadingStatus('No cached videos yet. Waiting for first manifest sync...');
+        return;
       }
+
+      const creatives: Creative[] = cachedVideos.map((meta) => ({
+        id: meta.id,
+        url: meta.url,
+        duration: meta.duration,
+        campaignId: meta.campaignId,
+        campaignName: meta.campaignName,
+      }));
+
+      this.state.playlist = creatives;
+      await this.videoManager.updatePlaylist(creatives);
+      this.state.currentIndex = this.videoManager.getCurrentIndex();
+      this.setLoadingStatus(`Loaded ${cachedVideos.length} cached videos`);
+      this.hideError();
     } catch (error) {
       console.error('Failed to load cached videos:', error);
     }
   }
 
-  private handleVideoEvent(event: any): void {
+  private handleVideoEvent(event: VideoEvent): void {
+    this.state.currentIndex = this.videoManager.getCurrentIndex();
+
     switch (event.type) {
       case 'play':
         this.state.isPlaying = true;
         this.state.currentVideo = event.video;
-        // Report impression when video starts playing
-        this.impressionTracker.reportImpression(event.video.id);
+        void this.impressionTracker.reportImpression(event.video.id);
         break;
       case 'pause':
         this.state.isPlaying = false;
         break;
       case 'ended':
         this.state.isPlaying = false;
-        // Video will automatically play next due to video manager logic
         break;
       case 'loadstart':
-        console.log(`Loading video: ${event.video.id}`);
+        this.setLoadingStatus(`Loading ${event.video.campaignName}...`);
         break;
       case 'loadeddata':
-        console.log(`Video loaded: ${event.video.id}`);
+        this.hideLoadingScreen();
         break;
     }
   }
 
-  private handleVideoLoaded(data: any): void {
-    console.log(`Video loaded: ${data.video.id} (from cache: ${data.fromCache})`);
+  private handleVideoLoaded(data: VideoLoadedEvent): void {
+    this.state.currentVideo = data.video;
+    this.state.currentIndex = this.videoManager.getCurrentIndex();
+    this.setLoadingStatus(
+      data.fromCache
+        ? `Playing cached video ${data.video.id}`
+        : data.fallback === 'remote'
+          ? `Streaming ${data.video.id} while cache warms`
+          : `Cached video ${data.video.id}`
+    );
   }
 
   private handleError(error: AppError): void {
     console.error('App error:', error);
     this.state.errorCount++;
 
-    // Handle different error types
     switch (error.type) {
       case ERROR_TYPES.VIDEO:
-        // Video errors are handled by video manager
-        break;
-      case ERROR_TYPES.NETWORK:
-        // Network errors are handled by impression tracker
+        this.showError('Video playback failed. Trying the next creative.');
         break;
       case ERROR_TYPES.MANIFEST:
-        // Continue with cached videos if manifest fails
+        this.showError('Manifest unavailable. Continuing with cached content if present.');
         break;
       case ERROR_TYPES.STORAGE:
-        // Storage errors might require cache cleanup
-        this.handleStorageError();
+        void this.handleStorageError();
+        break;
+      default:
+        this.showError(error.message);
         break;
     }
   }
@@ -212,9 +346,7 @@ export class StreetCastApp {
       console.log('Storage stats:', stats);
 
       if (stats.availableSpace < 100 * 1024 * 1024) {
-        // Less than 100MB
-        console.log('Low storage space, cleaning up cache...');
-        // The cache manager will handle cleanup automatically
+        this.showError('Low browser storage. Old cached videos may be removed automatically.');
       }
     } catch (error) {
       console.error('Failed to handle storage error:', error);
@@ -223,27 +355,58 @@ export class StreetCastApp {
 
   private handleOnline(): void {
     this.state.isOnline = true;
-    console.log('Network connection restored');
-    // Resume normal operations
-    this.pollManifest();
+    void this.refreshManifest();
   }
 
   private handleOffline(): void {
     this.state.isOnline = false;
-    console.log('Network connection lost, continuing with cached videos');
+    if (this.state.playlist.length > 0) {
+      this.showError('Offline. Continuing with cached content.');
+    }
   }
 
   private handleVisibilityChange(): void {
     if (document.hidden) {
-      console.log('App hidden, pausing video');
       this.videoManager.pause();
     } else {
-      console.log('App visible, resuming video');
       this.videoManager.play();
     }
   }
 
-  // Public methods
+  private setLoadingStatus(message: string): void {
+    const status = document.getElementById('loading-status');
+    if (status) {
+      status.textContent = message;
+    }
+  }
+
+  private hideLoadingScreen(): void {
+    const loadingScreen = document.getElementById('loading-screen');
+    if (loadingScreen) {
+      loadingScreen.classList.add('hidden');
+    }
+  }
+
+  private showError(message: string): void {
+    const overlay = document.getElementById('error-overlay');
+    const messageElement = document.getElementById('error-message');
+
+    if (messageElement) {
+      messageElement.textContent = message;
+    }
+
+    if (overlay) {
+      overlay.classList.remove('hidden');
+    }
+  }
+
+  private hideError(): void {
+    const overlay = document.getElementById('error-overlay');
+    if (overlay) {
+      overlay.classList.add('hidden');
+    }
+  }
+
   getState(): AppState {
     return { ...this.state };
   }
@@ -252,7 +415,7 @@ export class StreetCastApp {
     return { ...this.config };
   }
 
-  async getHealthStatus(): Promise<any> {
+  async getHealthStatus(): Promise<unknown> {
     const impressionHealth = await this.impressionTracker.healthCheck();
     const storageStats = await this.cacheManager.getStorageStats();
 
@@ -263,7 +426,9 @@ export class StreetCastApp {
         playing: this.state.isPlaying,
         errorCount: this.state.errorCount,
         lastManifestUpdate: this.state.lastManifestUpdate,
+        lastManifestVersion: this.state.lastManifestVersion,
       },
+      config: this.config,
       video: {
         currentVideo: this.state.currentVideo,
         playlistLength: this.state.playlist.length,
@@ -274,7 +439,6 @@ export class StreetCastApp {
     };
   }
 
-  // Manual controls
   play(): void {
     this.videoManager.play();
   }
@@ -288,10 +452,9 @@ export class StreetCastApp {
   }
 
   nextVideo(): void {
-    this.videoManager.playNext();
+    void this.videoManager.playNext();
   }
 
-  // Cleanup
   destroy(): void {
     if (this.manifestPoller) {
       clearInterval(this.manifestPoller);
@@ -300,18 +463,13 @@ export class StreetCastApp {
 
     this.videoManager.destroy();
     this.impressionTracker.destroy();
-    this.cacheManager.clearAll();
-
     this.isInitialized = false;
     console.log('Street Cast App destroyed');
   }
 }
 
-// Initialize app when DOM is ready
 document.addEventListener('DOMContentLoaded', async () => {
   const app = new StreetCastApp();
+  window.streetCastApp = app;
   await app.initialize();
-
-  // Make app available globally for debugging
-  (window as any).streetCastApp = app;
 });

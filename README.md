@@ -1,6 +1,6 @@
 # Street Cast PWA
 
-A Progressive Web App for displaying advertising content on Raspberry Pi devices. The PWA polls for video manifests, downloads and caches videos, and plays them in a continuous loop while reporting impressions.
+A Progressive Web App for displaying advertising content on connected screens. Preferred demo path: open it directly in the TV browser, let the browser cache videos locally, and avoid extra Raspberry Pi hardware unless the TV browser proves insufficient.
 
 ## Features
 
@@ -51,11 +51,19 @@ npm run format
 
 ## Configuration
 
-Set environment variables:
+Preferred runtime config for demos: query params or persisted browser config.
+
+```text
+/?serverUrl=https://your-server.example.com&deviceId=tv-demo-01
+```
+
+The app persists the last working config in browser storage, so the TV can reopen the same URL later and continue using cached videos offline.
+
+Build-time config is still supported with Vite env vars:
 
 ```bash
-DEVICE_ID=device_123
-SERVER_URL=https://api.streetcast.com
+VITE_DEVICE_ID=device_123
+VITE_SERVER_URL=https://api.streetcast.com
 ```
 
 ## Project Structure
@@ -89,8 +97,17 @@ POST /api/impression
 
 1. Build the application: `npm run build`
 2. Deploy the `dist` folder to your web server
-3. Configure Raspberry Pi to open the app in kiosk mode
-4. Set up device registration with your server
+3. Open the app on the target TV browser with `serverUrl` and `deviceId` query params
+4. Verify the first manifest sync downloads videos into browser storage
+5. Reload offline and confirm cached playback continues
+
+## Demo Checklist
+
+1. Open `/?serverUrl=...&deviceId=tv-demo-01&debug=true`
+2. Confirm the first creative plays
+3. Disconnect network or block the API
+4. Reload and confirm cached playback still works
+5. Reconnect and verify manifest refresh resumes automatically
 
 ## Development Phases
 
