@@ -49,7 +49,10 @@ export class ImpressionTracker {
     // Don't add duplicates
     if (
       this.retryQueue.some(
-        (item) => item.deviceId === impression.deviceId && item.creativeId === impression.creativeId
+        (item) =>
+          item.deviceId === impression.deviceId &&
+          item.creativeId === impression.creativeId &&
+          item.timestamp === impression.timestamp
       )
     ) {
       return;
@@ -79,7 +82,7 @@ export class ImpressionTracker {
     this.retryQueue = [];
 
     for (const impression of queue) {
-      const key = `${impression.deviceId}-${impression.creativeId}`;
+      const key = `${impression.deviceId}-${impression.creativeId}-${impression.timestamp ?? 0}`;
       const attempts = this.retryAttempts.get(key) || 0;
 
       if (attempts >= this.MAX_RETRIES) {

@@ -1,6 +1,8 @@
 import { Creative, VideoEvent, AppError, ERROR_TYPES } from '@/types';
 import { CacheManager } from '@/utils/storage';
 
+type EventCallback = (data?: unknown) => void;
+
 export class VideoManager {
   private videoElement: HTMLVideoElement;
   private playlist: Creative[] = [];
@@ -8,7 +10,8 @@ export class VideoManager {
   private currentVideo: Creative | null = null;
   private cacheManager: CacheManager;
   private isPreloading = false;
-  private eventListeners: Map<string, Function[]> = new Map();
+  private eventListeners: Map<string, EventCallback[]> = new Map();
+  private activeObjectUrl: string | null = null;
 
   constructor(cacheManager: CacheManager) {
     this.cacheManager = cacheManager;
@@ -21,6 +24,8 @@ export class VideoManager {
     video.autoplay = true;
     video.muted = true;
     video.loop = false;
+    video.playsInline = true;
+    video.preload = 'auto';
     video.controls = false;
     video.style.width = '100%';
     video.style.height = '100%';
@@ -31,7 +36,10 @@ export class VideoManager {
   private setupEventListeners(): void {
     this.videoElement.addEventListener('play', () => this.handleVideoEvent('play'));
     this.videoElement.addEventListener('pause', () => this.handleVideoEvent('pause'));
-    this.videoElement.addEventListener('ended', () => this.handleVideoEvent('ended'));
+    this.videoElement.addEventListener('ended', () => {
+      this.handleVideoEvent('ended');
+      this.skipToNext();
+    });
     this.videoElement.addEventListener('error', (e) => this.handleVideoError(e));
     this.videoElement.addEventListener('loadstart', () => this.handleVideoEvent('loadstart'));
     this.videoElement.addEventListener('loadeddata', () => this.handleVideoEvent('loadeddata'));
@@ -64,14 +72,19 @@ export class VideoManager {
   }
 
   async updatePlaylist(creatives: Creative[]): Promise<void> {
+    const nextSignature = creatives.map((creative) => creative.id).join('|');
+    const currentSignature = this.playlist.map((creative) => creative.id).join('|');
+
     this.playlist = creatives;
-    this.currentIndex = 0;
+    if (nextSignature !== currentSignature) {
+      this.currentIndex = 0;
+    }
 
     // Start downloading videos in background
-    this.preloadVideos();
+    void this.preloadVideos();
 
     // Start playing if we have videos
-    if (this.playlist.length > 0) {
+    if (this.playlist.length > 0 && !this.currentVideo) {
       await this.playNext();
     }
   }
@@ -92,23 +105,35 @@ export class VideoManager {
   }
 
   private async loadVideo(video: Creative): Promise<void> {
+    this.releaseActiveObjectUrl();
+
     // Check if video is cached
     const cachedUrl = await this.cacheManager.getVideoUrl(video.id);
 
     if (cachedUrl) {
+      this.activeObjectUrl = cachedUrl;
       this.videoElement.src = cachedUrl;
       this.emit('videoLoaded', { video, fromCache: true });
     } else {
-      // Download and cache video
-      await this.downloadAndCacheVideo(video);
-      const newCachedUrl = await this.cacheManager.getVideoUrl(video.id);
-      if (newCachedUrl) {
-        this.videoElement.src = newCachedUrl;
-        this.emit('videoLoaded', { video, fromCache: false });
-      } else {
-        throw new Error('Failed to get cached video URL');
+      try {
+        await this.downloadAndCacheVideo(video);
+        const newCachedUrl = await this.cacheManager.getVideoUrl(video.id);
+        if (newCachedUrl) {
+          this.activeObjectUrl = newCachedUrl;
+          this.videoElement.src = newCachedUrl;
+          this.emit('videoLoaded', { video, fromCache: false });
+        } else {
+          throw new Error('Failed to get cached video URL');
+        }
+      } catch (error) {
+        console.warn('Falling back to remote playback for video', video.id, error);
+        this.videoElement.src = video.url;
+        this.emit('videoLoaded', { video, fromCache: false, fallback: 'remote' });
       }
     }
+
+    this.videoElement.load();
+    await this.videoElement.play();
   }
 
   private async downloadAndCacheVideo(video: Creative): Promise<void> {
@@ -169,14 +194,14 @@ export class VideoManager {
 
   private skipToNext(): void {
     if (this.playlist.length > 0) {
-      this.currentIndex = (this.currentIndex + 1) % this.playlist.length;
-      this.playNext();
+      this.releaseActiveObjectUrl();
+      void this.playNext();
     }
   }
 
   // Public methods
   play(): void {
-    this.videoElement.play();
+    void this.videoElement.play();
   }
 
   pause(): void {
@@ -209,14 +234,14 @@ export class VideoManager {
   }
 
   // Event system
-  on(event: string, callback: Function): void {
+  on(event: string, callback: EventCallback): void {
     if (!this.eventListeners.has(event)) {
       this.eventListeners.set(event, []);
     }
     this.eventListeners.get(event)!.push(callback);
   }
 
-  off(event: string, callback: Function): void {
+  off(event: string, callback: EventCallback): void {
     const listeners = this.eventListeners.get(event);
     if (listeners) {
       const index = listeners.indexOf(callback);
@@ -226,15 +251,23 @@ export class VideoManager {
     }
   }
 
-  private emit(event: string, data?: any): void {
+  private emit(event: string, data?: unknown): void {
     const listeners = this.eventListeners.get(event);
     if (listeners) {
       listeners.forEach((callback) => callback(data));
     }
   }
 
+  private releaseActiveObjectUrl(): void {
+    if (this.activeObjectUrl) {
+      this.cacheManager.revokeVideoUrl(this.activeObjectUrl);
+      this.activeObjectUrl = null;
+    }
+  }
+
   // Cleanup
   destroy(): void {
+    this.releaseActiveObjectUrl();
     this.videoElement.remove();
     this.eventListeners.clear();
   }
