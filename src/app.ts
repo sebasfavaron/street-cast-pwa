@@ -192,7 +192,10 @@ export class StreetCastApp {
   }
 
   private startManifestPolling(): void {
-    if (this.manifestPoller) {
+    if (!this.config.serverUrl || this.manifestPoller) {
+      if (!this.config.serverUrl) {
+        this.setLoadingStatus('Waiting for VITE_SERVER_URL or ?serverUrl=...');
+      }
       return;
     }
 
@@ -202,6 +205,11 @@ export class StreetCastApp {
   }
 
   async refreshManifest(): Promise<void> {
+    if (!this.config.serverUrl) {
+      this.showError('Missing API base URL. Configure VITE_SERVER_URL or pass ?serverUrl=...');
+      return;
+    }
+
     this.setLoadingStatus(`Syncing device ${this.config.deviceId}...`);
 
     try {
