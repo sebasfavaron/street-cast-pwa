@@ -61,7 +61,6 @@ Preferred runtime config for demos: same-origin API by default, with optional qu
 ```
 
 When `serverUrl` is omitted, the app uses the same origin. This is the intended Vercel demo setup with the temporary local `api/` routes.
-
 The app persists the last working config in browser storage, so the TV can reopen the same URL later and continue using cached videos offline.
 
 Build-time config is still supported with Vite env vars:

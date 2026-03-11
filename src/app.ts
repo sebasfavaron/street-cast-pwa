@@ -34,7 +34,6 @@ function normalizeServerUrl(value?: string): string {
 function getApiBaseUrl(serverUrl: string): string {
   return normalizeServerUrl(serverUrl);
 }
-
 function getNumericOverride(value: string | null): number | undefined {
   if (!value) return undefined;
   const parsed = Number(value);
