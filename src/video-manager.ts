@@ -1,7 +1,16 @@
-import { Creative, VideoEvent, AppError, ERROR_TYPES } from '@/types';
+import { Creative, VideoEvent, VideoLoadedEvent, AppError, ERROR_TYPES } from '@/types';
 import { CacheManager } from '@/utils/storage';
 
-type EventCallback = (data?: unknown) => void;
+interface VideoManagerEventMap {
+  videoEvent: VideoEvent;
+  videoLoaded: VideoLoadedEvent;
+  error: AppError;
+}
+
+type EventCallback<T> = (data: T) => void;
+type VideoManagerEventKey = keyof VideoManagerEventMap;
+type AnyEventCallback =
+  { [K in VideoManagerEventKey]: EventCallback<VideoManagerEventMap[K]> }[VideoManagerEventKey];
 
 export class VideoManager {
   private videoElement: HTMLVideoElement;
@@ -10,8 +19,9 @@ export class VideoManager {
   private currentVideo: Creative | null = null;
   private cacheManager: CacheManager;
   private isPreloading = false;
-  private eventListeners: Map<string, EventCallback[]> = new Map();
+  private eventListeners = new Map<VideoManagerEventKey, AnyEventCallback[]>();
   private activeObjectUrl: string | null = null;
+  private durationTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(cacheManager: CacheManager) {
     this.cacheManager = cacheManager;
@@ -47,6 +57,14 @@ export class VideoManager {
 
   private handleVideoEvent(type: VideoEvent['type']): void {
     if (this.currentVideo) {
+      if (type === 'play') {
+        this.scheduleDurationCutoff(this.currentVideo);
+      }
+
+      if (type === 'pause' || type === 'ended' || type === 'error') {
+        this.clearDurationCutoff();
+      }
+
       const event: VideoEvent = {
         type,
         video: this.currentVideo,
@@ -194,6 +212,7 @@ export class VideoManager {
 
   private skipToNext(): void {
     if (this.playlist.length > 0) {
+      this.clearDurationCutoff();
       this.releaseActiveObjectUrl();
       void this.playNext();
     }
@@ -234,15 +253,19 @@ export class VideoManager {
   }
 
   // Event system
-  on(event: string, callback: EventCallback): void {
-    if (!this.eventListeners.has(event)) {
-      this.eventListeners.set(event, []);
-    }
-    this.eventListeners.get(event)!.push(callback);
+  on<K extends keyof VideoManagerEventMap>(event: K, callback: EventCallback<VideoManagerEventMap[K]>): void {
+    const listeners = (this.eventListeners.get(event) ?? []) as Array<EventCallback<VideoManagerEventMap[K]>>;
+    listeners.push(callback);
+    this.eventListeners.set(event, listeners as AnyEventCallback[]);
   }
 
-  off(event: string, callback: EventCallback): void {
-    const listeners = this.eventListeners.get(event);
+  off<K extends keyof VideoManagerEventMap>(
+    event: K,
+    callback: EventCallback<VideoManagerEventMap[K]>
+  ): void {
+    const listeners = this.eventListeners.get(event) as
+      | Array<EventCallback<VideoManagerEventMap[K]>>
+      | undefined;
     if (listeners) {
       const index = listeners.indexOf(callback);
       if (index > -1) {
@@ -251,8 +274,10 @@ export class VideoManager {
     }
   }
 
-  private emit(event: string, data?: unknown): void {
-    const listeners = this.eventListeners.get(event);
+  private emit<K extends keyof VideoManagerEventMap>(event: K, data: VideoManagerEventMap[K]): void {
+    const listeners = this.eventListeners.get(event) as
+      | Array<EventCallback<VideoManagerEventMap[K]>>
+      | undefined;
     if (listeners) {
       listeners.forEach((callback) => callback(data));
     }
@@ -265,8 +290,30 @@ export class VideoManager {
     }
   }
 
+  private scheduleDurationCutoff(video: Creative): void {
+    this.clearDurationCutoff();
+
+    if (!video.duration || video.duration <= 0) {
+      return;
+    }
+
+    this.durationTimer = setTimeout(() => {
+      if (this.currentVideo?.id === video.id) {
+        this.skipToNext();
+      }
+    }, video.duration * 1000);
+  }
+
+  private clearDurationCutoff(): void {
+    if (this.durationTimer) {
+      clearTimeout(this.durationTimer);
+      this.durationTimer = null;
+    }
+  }
+
   // Cleanup
   destroy(): void {
+    this.clearDurationCutoff();
     this.releaseActiveObjectUrl();
     this.videoElement.remove();
     this.eventListeners.clear();

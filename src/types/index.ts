@@ -84,6 +84,12 @@ export interface VideoEvent {
   timestamp: number
 }
 
+export interface VideoLoadedEvent {
+  video: Creative
+  fromCache: boolean
+  fallback?: 'remote'
+}
+
 export interface ManifestEvent {
   type: 'updated' | 'error' | 'polling'
   manifest?: ManifestResponse
