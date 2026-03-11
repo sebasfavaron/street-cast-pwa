@@ -6,6 +6,8 @@ import {
   AppState,
   ManifestResponse,
   Creative,
+  VideoEvent,
+  VideoLoadedEvent,
   AppError,
   ERROR_TYPES,
   DEFAULT_CONFIG,
@@ -33,6 +35,14 @@ function getNumericOverride(value: string | null): number | undefined {
   if (!value) return undefined;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function coercePositiveNumber(value: number | undefined, fallback: number): number {
+  if (value == null || value <= 0) {
+    return fallback;
+  }
+
+  return value;
 }
 
 function loadStoredConfig(): RuntimeConfigSource {
@@ -94,9 +104,9 @@ function resolveConfig(overrides: Partial<AppConfig>): AppConfig {
   return {
     deviceId: (merged.deviceId ?? DEFAULT_CONFIG.deviceId).trim() || DEFAULT_CONFIG.deviceId,
     serverUrl: normalizeServerUrl(merged.serverUrl),
-    pollInterval: merged.pollInterval ?? DEFAULT_CONFIG.pollInterval,
-    cacheSize: merged.cacheSize ?? DEFAULT_CONFIG.cacheSize,
-    maxVideos: merged.maxVideos ?? DEFAULT_CONFIG.maxVideos,
+    pollInterval: coercePositiveNumber(merged.pollInterval, DEFAULT_CONFIG.pollInterval),
+    cacheSize: coercePositiveNumber(merged.cacheSize, DEFAULT_CONFIG.cacheSize),
+    maxVideos: Math.max(1, Math.floor(coercePositiveNumber(merged.maxVideos, DEFAULT_CONFIG.maxVideos))),
   };
 }
 
@@ -137,9 +147,9 @@ export class StreetCastApp {
     window.addEventListener('online', () => this.handleOnline());
     window.addEventListener('offline', () => this.handleOffline());
 
-    this.videoManager.on('videoEvent', (event: unknown) => this.handleVideoEvent(event as any));
-    this.videoManager.on('videoLoaded', (data: unknown) => this.handleVideoLoaded(data as any));
-    this.videoManager.on('error', (error: unknown) => this.handleError(error as AppError));
+    this.videoManager.on('videoEvent', (event) => this.handleVideoEvent(event));
+    this.videoManager.on('videoLoaded', (data) => this.handleVideoLoaded(data));
+    this.videoManager.on('error', (error) => this.handleError(error));
 
     document.addEventListener('visibilitychange', () => this.handleVisibilityChange());
   }
@@ -274,7 +284,7 @@ export class StreetCastApp {
     }
   }
 
-  private handleVideoEvent(event: { type: string; video: Creative }): void {
+  private handleVideoEvent(event: VideoEvent): void {
     this.state.currentIndex = this.videoManager.getCurrentIndex();
 
     switch (event.type) {
@@ -298,7 +308,7 @@ export class StreetCastApp {
     }
   }
 
-  private handleVideoLoaded(data: { video: Creative; fromCache: boolean; fallback?: string }): void {
+  private handleVideoLoaded(data: VideoLoadedEvent): void {
     this.state.currentVideo = data.video;
     this.state.currentIndex = this.videoManager.getCurrentIndex();
     this.setLoadingStatus(
