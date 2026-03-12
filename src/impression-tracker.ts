@@ -2,6 +2,14 @@ import { ImpressionRequest, AppConfig } from '@/types';
 
 const RETRY_QUEUE_KEY = 'impression-retry-queue';
 const RETRY_QUEUE_CONFIG_KEY = 'impression-retry-queue-config';
+
+class NonRetryableImpressionError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'NonRetryableImpressionError';
+  }
+}
+
 function getApiBaseUrl(serverUrl: string): string {
   return serverUrl.trim().replace(/\/+$/, '');
 }
@@ -30,6 +38,11 @@ export class ImpressionTracker {
       await this.sendImpression(impression);
       console.log(`Impression reported for creative ${creativeId}`);
     } catch (error) {
+      if (error instanceof NonRetryableImpressionError) {
+        console.warn(`Dropping non-retryable impression for creative ${creativeId}:`, error.message);
+        return;
+      }
+
       console.warn(`Failed to report impression for creative ${creativeId}:`, error);
       this.addToRetryQueue(impression);
     }
@@ -45,6 +58,12 @@ export class ImpressionTracker {
       },
       body: JSON.stringify(impression),
     });
+
+    if (response.status === 404) {
+      throw new NonRetryableImpressionError(
+        `HTTP 404 for device ${impression.deviceId} and creative ${impression.creativeId}`
+      );
+    }
 
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -102,6 +121,12 @@ export class ImpressionTracker {
         this.retryAttempts.delete(key);
         console.log(`Successfully sent retry impression for ${key}`);
       } catch (error) {
+        if (error instanceof NonRetryableImpressionError) {
+          console.warn(`Dropping non-retryable retry impression for ${key}:`, error.message);
+          this.retryAttempts.delete(key);
+          continue;
+        }
+
         console.warn(`Retry failed for impression ${key} (attempt ${attempts + 1}):`, error);
 
         // Add back to queue with exponential backoff
