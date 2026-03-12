@@ -23,6 +23,8 @@ declare global {
 
 const CONFIG_STORAGE_KEY = 'street-cast-runtime-config';
 const DEFAULT_LOCAL_SERVER_PORT = '3050';
+const DEFAULT_REMOTE_DEVICE_ID = 'dev-device-1';
+const DEFAULT_REMOTE_SERVER_URL = 'https://street-cast-server.vercel.app';
 const importMetaEnv =
   typeof import.meta !== 'undefined'
     ? ((import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env ?? {})
@@ -143,23 +145,25 @@ function resolveConfig(overrides: Partial<AppConfig>): AppConfig {
     deviceId:
       pickFirstNonEmptyString(
         [
-        overrides.deviceId,
-        queryConfig.deviceId,
-        runtimeConfig.deviceId,
-        envConfig.deviceId,
-        storedConfig.deviceId,
-        DEFAULT_CONFIG.deviceId
+          overrides.deviceId,
+          queryConfig.deviceId,
+          runtimeConfig.deviceId,
+          envConfig.deviceId,
+          DEFAULT_REMOTE_DEVICE_ID,
+          storedConfig.deviceId,
+          DEFAULT_CONFIG.deviceId,
         ]
       ) || DEFAULT_CONFIG.deviceId,
     serverUrl: pickFirstNonEmptyString(
       [
-      overrides.serverUrl,
-      queryConfig.serverUrl,
-      runtimeConfig.serverUrl,
-      envConfig.serverUrl,
-      inferredLocalServerUrl,
-      storedConfig.serverUrl,
-      DEFAULT_CONFIG.serverUrl
+        overrides.serverUrl,
+        queryConfig.serverUrl,
+        runtimeConfig.serverUrl,
+        envConfig.serverUrl,
+        inferredLocalServerUrl,
+        DEFAULT_REMOTE_SERVER_URL,
+        storedConfig.serverUrl,
+        DEFAULT_CONFIG.serverUrl,
       ],
       normalizeServerUrl
     ),
