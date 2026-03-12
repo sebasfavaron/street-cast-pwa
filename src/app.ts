@@ -389,6 +389,13 @@ export class StreetCastApp {
         this.showError('Video playback failed. Trying the next creative.');
         break;
       case ERROR_TYPES.MANIFEST:
+        if (this.state.playlist.length > 0) {
+          this.setLoadingStatus('Manifest unavailable. Continuing with cached content.');
+          this.hideLoadingScreen();
+          this.hideError();
+          break;
+        }
+
         this.showError('Manifest unavailable. Continuing with cached content if present.');
         break;
       case ERROR_TYPES.STORAGE:
