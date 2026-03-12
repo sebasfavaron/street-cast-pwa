@@ -53,8 +53,11 @@ npm run format
 
 Preferred runtime config: `VITE_SERVER_URL` for real deployments, with optional query params for local/dev overrides.
 
+On local Vite dev hosts (`127.0.0.1` or `localhost`), the app now defaults to `http://<same-host>:3050` when `serverUrl` is omitted. Override with `?serverUrl=...` or `?serverPort=...` if your API runs elsewhere.
+
 ```text
 /?serverUrl=https://your-server.example.com&deviceId=tv-demo-01
+/?deviceId=tv-demo-01&serverPort=3050
 ```
 
 The app persists the last working config in browser storage, so the TV can reopen the same URL later and continue using cached videos offline.
