@@ -55,6 +55,8 @@
         <div id="debug-info">
           <p><strong>Status:</strong> <span id="debug-status">Loading...</span></p>
           <p><strong>Online:</strong> <span id="debug-online">Unknown</span></p>
+          <p><strong>Host:</strong> <span id="debug-host">Unknown</span></p>
+          <p><strong>API Base:</strong> <span id="debug-api-base">Unknown</span></p>
           <p><strong>Current Video:</strong> <span id="debug-video">None</span></p>
           <p><strong>Playlist Length:</strong> <span id="debug-playlist">0</span></p>
           <p><strong>Error Count:</strong> <span id="debug-errors">0</span></p>
@@ -69,8 +71,27 @@
 
   <!-- Service Worker Registration -->
   <script>
+    const isLocalDevHost = ['127.0.0.1', 'localhost'].includes(window.location.hostname);
+
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
+        if (isLocalDevHost) {
+          navigator.serviceWorker.getRegistrations()
+            .then((registrations) => Promise.all(registrations.map((registration) => registration.unregister())))
+            .then(() => {
+              if ('caches' in window) {
+                return caches.keys().then((keys) => Promise.all(keys.map((key) => caches.delete(key))));
+              }
+            })
+            .then(() => {
+              console.log('Cleared local service workers and caches for dev');
+            })
+            .catch((error) => {
+              console.log('Failed to clear local service workers/caches: ', error);
+            });
+          return;
+        }
+
         navigator.serviceWorker.register('/sw.js')
           .then((registration) => {
             console.log('SW registered: ', registration);
@@ -113,7 +134,7 @@
     });
 
     const params = new URLSearchParams(window.location.search);
-    if (params.get('debug') === 'true') {
+    if (params.get('debug') !== 'false') {
       debugVisible = true;
       debugPanel.classList.remove('hidden');
       debugButton.textContent = 'Hide Debug';
@@ -123,8 +144,11 @@
     setInterval(() => {
       if (window.streetCastApp && debugVisible) {
         const state = window.streetCastApp.getState();
+        const config = window.streetCastApp.getConfig();
         document.getElementById('debug-status').textContent = state.isPlaying ? 'Playing' : 'Paused';
         document.getElementById('debug-online').textContent = state.isOnline ? 'Yes' : 'No';
+        document.getElementById('debug-host').textContent = window.location.origin;
+        document.getElementById('debug-api-base').textContent = config.serverUrl || '(empty)';
         document.getElementById('debug-video').textContent = state.currentVideo ? state.currentVideo.id : 'None';
         document.getElementById('debug-playlist').textContent = state.playlist.length.toString();
         document.getElementById('debug-errors').textContent = state.errorCount.toString();
