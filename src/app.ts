@@ -22,6 +22,9 @@ declare global {
 }
 
 const CONFIG_STORAGE_KEY = 'street-cast-runtime-config';
+const DEFAULT_LOCAL_SERVER_PORT = '3050';
+const DEFAULT_REMOTE_DEVICE_ID = 'dev-device-1';
+const DEFAULT_REMOTE_SERVER_URL = 'https://street-cast-server.vercel.app';
 const importMetaEnv =
   typeof import.meta !== 'undefined'
     ? ((import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env ?? {})
@@ -33,6 +36,22 @@ function normalizeServerUrl(value?: string): string {
 
 function getApiBaseUrl(serverUrl: string): string {
   return normalizeServerUrl(serverUrl);
+}
+
+function inferLocalServerUrl(): string | undefined {
+  if (typeof window === 'undefined') {
+    return undefined;
+  }
+
+  const { hostname, protocol } = window.location;
+  if (!['127.0.0.1', 'localhost'].includes(hostname)) {
+    return undefined;
+  }
+
+  const params = new URLSearchParams(window.location.search);
+  const explicitPort = params.get('serverPort') ?? importMetaEnv.VITE_SERVER_PORT ?? DEFAULT_LOCAL_SERVER_PORT;
+
+  return `${protocol}//${hostname}:${explicitPort}`;
 }
 function getNumericOverride(value: string | null): number | undefined {
   if (!value) return undefined;
@@ -46,6 +65,20 @@ function coercePositiveNumber(value: number | undefined, fallback: number): numb
   }
 
   return value;
+}
+
+function pickFirstNonEmptyString(
+  values: Array<string | undefined>,
+  normalize: (value?: string) => string = (value) => (value ?? '').trim()
+): string {
+  for (const value of values) {
+    const normalized = normalize(value);
+    if (normalized) {
+      return normalized;
+    }
+  }
+
+  return '';
 }
 
 function loadStoredConfig(): RuntimeConfigSource {
@@ -95,18 +128,45 @@ function resolveConfig(overrides: Partial<AppConfig>): AppConfig {
     maxVideos: getNumericOverride(importMetaEnv.VITE_MAX_VIDEOS ?? null),
   };
 
+  const storedConfig = loadStoredConfig();
+  const inferredLocalServerUrl = inferLocalServerUrl();
+  const queryConfig = getQueryConfig();
+  const runtimeConfig = window.__STREET_CAST_CONFIG__ ?? {};
   const merged = {
     ...DEFAULT_CONFIG,
+    ...storedConfig,
     ...envConfig,
-    ...window.__STREET_CAST_CONFIG__,
-    ...loadStoredConfig(),
-    ...getQueryConfig(),
+    ...runtimeConfig,
+    ...queryConfig,
     ...overrides,
   };
 
   return {
-    deviceId: (merged.deviceId ?? DEFAULT_CONFIG.deviceId).trim() || DEFAULT_CONFIG.deviceId,
-    serverUrl: normalizeServerUrl(merged.serverUrl),
+    deviceId:
+      pickFirstNonEmptyString(
+        [
+          overrides.deviceId,
+          queryConfig.deviceId,
+          runtimeConfig.deviceId,
+          envConfig.deviceId,
+          DEFAULT_REMOTE_DEVICE_ID,
+          storedConfig.deviceId,
+          DEFAULT_CONFIG.deviceId,
+        ]
+      ) || DEFAULT_CONFIG.deviceId,
+    serverUrl: pickFirstNonEmptyString(
+      [
+        overrides.serverUrl,
+        queryConfig.serverUrl,
+        runtimeConfig.serverUrl,
+        envConfig.serverUrl,
+        inferredLocalServerUrl,
+        DEFAULT_REMOTE_SERVER_URL,
+        storedConfig.serverUrl,
+        DEFAULT_CONFIG.serverUrl,
+      ],
+      normalizeServerUrl
+    ),
     pollInterval: coercePositiveNumber(merged.pollInterval, DEFAULT_CONFIG.pollInterval),
     cacheSize: coercePositiveNumber(merged.cacheSize, DEFAULT_CONFIG.cacheSize),
     maxVideos: Math.max(1, Math.floor(coercePositiveNumber(merged.maxVideos, DEFAULT_CONFIG.maxVideos))),
@@ -192,7 +252,10 @@ export class StreetCastApp {
   }
 
   private startManifestPolling(): void {
-    if (this.manifestPoller) {
+    if (!this.config.serverUrl || this.manifestPoller) {
+      if (!this.config.serverUrl) {
+        this.setLoadingStatus('Waiting for VITE_SERVER_URL or ?serverUrl=...');
+      }
       return;
     }
 
@@ -202,6 +265,10 @@ export class StreetCastApp {
   }
 
   async refreshManifest(): Promise<void> {
+    if (!this.config.serverUrl) {
+      this.showError('Missing API base URL. Configure VITE_SERVER_URL or pass ?serverUrl=...');
+      return;
+    }
     this.setLoadingStatus(`Syncing device ${this.config.deviceId}...`);
 
     try {

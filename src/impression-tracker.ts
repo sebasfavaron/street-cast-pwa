@@ -1,5 +1,7 @@
 import { ImpressionRequest, AppConfig } from '@/types';
 
+const RETRY_QUEUE_KEY = 'impression-retry-queue';
+const RETRY_QUEUE_CONFIG_KEY = 'impression-retry-queue-config';
 function getApiBaseUrl(serverUrl: string): string {
   return serverUrl.trim().replace(/\/+$/, '');
 }
@@ -117,7 +119,16 @@ export class ImpressionTracker {
 
   private loadRetryQueue(): void {
     try {
-      const stored = localStorage.getItem('impression-retry-queue');
+      const currentApiBaseUrl = getApiBaseUrl(this.config.serverUrl);
+      const storedApiBaseUrl = localStorage.getItem(RETRY_QUEUE_CONFIG_KEY);
+
+      if (storedApiBaseUrl && storedApiBaseUrl !== currentApiBaseUrl) {
+        localStorage.removeItem(RETRY_QUEUE_KEY);
+      }
+
+      localStorage.setItem(RETRY_QUEUE_CONFIG_KEY, currentApiBaseUrl);
+
+      const stored = localStorage.getItem(RETRY_QUEUE_KEY);
       if (stored) {
         this.retryQueue = JSON.parse(stored);
       }
@@ -129,7 +140,8 @@ export class ImpressionTracker {
 
   private saveRetryQueue(): void {
     try {
-      localStorage.setItem('impression-retry-queue', JSON.stringify(this.retryQueue));
+      localStorage.setItem(RETRY_QUEUE_KEY, JSON.stringify(this.retryQueue));
+      localStorage.setItem(RETRY_QUEUE_CONFIG_KEY, getApiBaseUrl(this.config.serverUrl));
     } catch (error) {
       console.error('Failed to save retry queue:', error);
     }
