@@ -10,9 +10,15 @@ import {
   VideoLoadedEvent,
   AppError,
   ERROR_TYPES,
-  DEFAULT_CONFIG,
   RuntimeConfigSource,
 } from './types';
+import {
+  getNumericOverride,
+  getQueryConfig,
+  normalizeServerUrl,
+  resolveConfigFromSources,
+  syncUrlWithConfig as buildConfigUrl,
+} from './runtime-config';
 
 declare global {
   interface Window {
@@ -23,16 +29,10 @@ declare global {
 
 const CONFIG_STORAGE_KEY = 'street-cast-runtime-config';
 const DEFAULT_LOCAL_SERVER_PORT = '3050';
-const DEFAULT_REMOTE_DEVICE_ID = 'dev-device-1';
-const DEFAULT_REMOTE_SERVER_URL = 'https://street-cast-server.vercel.app';
 const importMetaEnv =
   typeof import.meta !== 'undefined'
     ? ((import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env ?? {})
     : {};
-
-function normalizeServerUrl(value?: string): string {
-  return (value ?? '').trim().replace(/\/+$/, '');
-}
 
 function getApiBaseUrl(serverUrl: string): string {
   return normalizeServerUrl(serverUrl);
@@ -53,33 +53,6 @@ function inferLocalServerUrl(): string | undefined {
 
   return `${protocol}//${hostname}:${explicitPort}`;
 }
-function getNumericOverride(value: string | null): number | undefined {
-  if (!value) return undefined;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : undefined;
-}
-
-function coercePositiveNumber(value: number | undefined, fallback: number): number {
-  if (value == null || value <= 0) {
-    return fallback;
-  }
-
-  return value;
-}
-
-function pickFirstNonEmptyString(
-  values: Array<string | undefined>,
-  normalize: (value?: string) => string = (value) => (value ?? '').trim()
-): string {
-  for (const value of values) {
-    const normalized = normalize(value);
-    if (normalized) {
-      return normalized;
-    }
-  }
-
-  return '';
-}
 
 function loadStoredConfig(): RuntimeConfigSource {
   try {
@@ -89,17 +62,6 @@ function loadStoredConfig(): RuntimeConfigSource {
     console.warn('Failed to load stored runtime config', error);
     return {};
   }
-}
-
-function getQueryConfig(): RuntimeConfigSource {
-  const params = new URLSearchParams(window.location.search);
-  return {
-    deviceId: params.get('deviceId') ?? params.get('device') ?? undefined,
-    serverUrl: params.get('serverUrl') ?? params.get('server') ?? undefined,
-    pollInterval: getNumericOverride(params.get('pollInterval')),
-    cacheSize: getNumericOverride(params.get('cacheSize')),
-    maxVideos: getNumericOverride(params.get('maxVideos')),
-  };
 }
 
 function saveRuntimeConfig(config: AppConfig): void {
@@ -119,7 +81,7 @@ function saveRuntimeConfig(config: AppConfig): void {
   }
 }
 
-function resolveConfig(overrides: Partial<AppConfig>): AppConfig {
+export function resolveConfig(overrides: Partial<AppConfig>): AppConfig {
   const envConfig: RuntimeConfigSource = {
     deviceId: importMetaEnv.VITE_DEVICE_ID,
     serverUrl: importMetaEnv.VITE_SERVER_URL,
@@ -130,47 +92,30 @@ function resolveConfig(overrides: Partial<AppConfig>): AppConfig {
 
   const storedConfig = loadStoredConfig();
   const inferredLocalServerUrl = inferLocalServerUrl();
-  const queryConfig = getQueryConfig();
+  const queryConfig = getQueryConfig(window.location.search);
   const runtimeConfig = window.__STREET_CAST_CONFIG__ ?? {};
-  const merged = {
-    ...DEFAULT_CONFIG,
-    ...storedConfig,
-    ...envConfig,
-    ...runtimeConfig,
-    ...queryConfig,
-    ...overrides,
-  };
+  return resolveConfigFromSources({
+    overrides,
+    storedConfig,
+    envConfig,
+    runtimeConfig,
+    queryConfig,
+    inferredLocalServerUrl,
+  });
+}
 
-  return {
-    deviceId:
-      pickFirstNonEmptyString(
-        [
-          overrides.deviceId,
-          queryConfig.deviceId,
-          runtimeConfig.deviceId,
-          envConfig.deviceId,
-          DEFAULT_REMOTE_DEVICE_ID,
-          storedConfig.deviceId,
-          DEFAULT_CONFIG.deviceId,
-        ]
-      ) || DEFAULT_CONFIG.deviceId,
-    serverUrl: pickFirstNonEmptyString(
-      [
-        overrides.serverUrl,
-        queryConfig.serverUrl,
-        runtimeConfig.serverUrl,
-        envConfig.serverUrl,
-        inferredLocalServerUrl,
-        DEFAULT_REMOTE_SERVER_URL,
-        storedConfig.serverUrl,
-        DEFAULT_CONFIG.serverUrl,
-      ],
-      normalizeServerUrl
-    ),
-    pollInterval: coercePositiveNumber(merged.pollInterval, DEFAULT_CONFIG.pollInterval),
-    cacheSize: coercePositiveNumber(merged.cacheSize, DEFAULT_CONFIG.cacheSize),
-    maxVideos: Math.max(1, Math.floor(coercePositiveNumber(merged.maxVideos, DEFAULT_CONFIG.maxVideos))),
-  };
+export function syncUrlWithConfig(config: AppConfig): void {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  const nextUrl = buildConfigUrl(config, window.location.href);
+  const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+  if (nextUrl === currentUrl) {
+    return;
+  }
+
+  window.history.replaceState(window.history.state, '', nextUrl);
 }
 
 export class StreetCastApp {
@@ -189,6 +134,7 @@ export class StreetCastApp {
     this.videoManager = new VideoManager(this.cacheManager);
     this.impressionTracker = new ImpressionTracker(this.config);
 
+    syncUrlWithConfig(this.config);
     saveRuntimeConfig(this.config);
     this.setupEventListeners();
   }
