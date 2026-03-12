@@ -51,7 +51,6 @@ function inferLocalServerUrl(): string | undefined {
 
   return `${protocol}//${hostname}:${explicitPort}`;
 }
-
 function getNumericOverride(value: string | null): number | undefined {
   if (!value) return undefined;
   const parsed = Number(value);
@@ -266,7 +265,6 @@ export class StreetCastApp {
       this.showError('Missing API base URL. Configure VITE_SERVER_URL or pass ?serverUrl=...');
       return;
     }
-
     this.setLoadingStatus(`Syncing device ${this.config.deviceId}...`);
 
     try {

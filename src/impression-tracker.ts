@@ -2,7 +2,6 @@ import { ImpressionRequest, AppConfig } from '@/types';
 
 const RETRY_QUEUE_KEY = 'impression-retry-queue';
 const RETRY_QUEUE_CONFIG_KEY = 'impression-retry-queue-config';
-
 function getApiBaseUrl(serverUrl: string): string {
   return serverUrl.trim().replace(/\/+$/, '');
 }

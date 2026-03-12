@@ -2,6 +2,8 @@
 
 A Progressive Web App for displaying advertising content on connected screens. Preferred deployment path: host the PWA on Vercel and point it at the real `street-cast-server` deployment.
 
+The repo currently includes a temporary `api/` folder for Vercel demo deployment. That API is intentionally provisional and should later be replaced by `street-cast-server`.
+
 ## Features
 
 - **Offline-First**: Continues playing cached videos when network is unavailable
@@ -115,7 +117,7 @@ The real API is expected to be served by the deployed `street-cast-server` app:
 
 ## Demo Checklist
 
-1. Open `/?deviceId=tv-demo-01&debug=true`
+1. Open `/?serverUrl=...&deviceId=tv-demo-01&debug=true`
 2. Confirm the first creative plays
 3. Disconnect network or block the API
 4. Reload and confirm cached playback still works
