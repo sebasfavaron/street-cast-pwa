@@ -1,13 +1,8 @@
 import { AppConfig, DEFAULT_CONFIG, RuntimeConfigSource } from './types';
 
+export const DEFAULT_REMOTE_DEVICE_ID = 'dev-device-1';
 export const DEFAULT_REMOTE_SERVER_URL = 'https://street-cast-server.vercel.app';
-export const CONFIG_URL_PARAM_MAP = {
-  deviceId: 'deviceId',
-  serverUrl: 'serverUrl',
-  pollInterval: 'pollInterval',
-  cacheSize: 'cacheSize',
-  maxVideos: 'maxVideos',
-} as const;
+export const DEFAULT_DEBUG_VALUE = 'true';
 
 export function normalizeServerUrl(value?: string): string {
   return (value ?? '').trim().replace(/\/+$/, '');
@@ -84,6 +79,7 @@ export function resolveConfigFromSources({
           queryConfig.deviceId,
           runtimeConfig.deviceId,
           envConfig.deviceId,
+          DEFAULT_REMOTE_DEVICE_ID,
           storedConfig.deviceId,
           DEFAULT_CONFIG.deviceId,
         ]
@@ -94,8 +90,8 @@ export function resolveConfigFromSources({
         queryConfig.serverUrl,
         runtimeConfig.serverUrl,
         envConfig.serverUrl,
-        inferredLocalServerUrl,
         DEFAULT_REMOTE_SERVER_URL,
+        inferredLocalServerUrl,
         storedConfig.serverUrl,
         DEFAULT_CONFIG.serverUrl,
       ],
@@ -107,20 +103,17 @@ export function resolveConfigFromSources({
   };
 }
 
-export function syncUrlWithConfig(config: AppConfig, locationHref: string): string {
+export function syncUrlWithDefaults(locationHref: string): string {
   const url = new URL(locationHref);
-  let didChange = false;
-
-  for (const [configKey, paramKey] of Object.entries(CONFIG_URL_PARAM_MAP) as Array<
-    [keyof AppConfig, string]
-  >) {
-    if (url.searchParams.has(paramKey)) {
-      continue;
-    }
-
-    url.searchParams.set(paramKey, String(config[configKey]));
-    didChange = true;
+  if (!url.searchParams.has('deviceId')) {
+    url.searchParams.set('deviceId', DEFAULT_REMOTE_DEVICE_ID);
+  }
+  if (!url.searchParams.has('serverUrl')) {
+    url.searchParams.set('serverUrl', DEFAULT_REMOTE_SERVER_URL);
+  }
+  if (!url.searchParams.has('debug')) {
+    url.searchParams.set('debug', DEFAULT_DEBUG_VALUE);
   }
 
-  return didChange ? `${url.pathname}${url.search}${url.hash}` : `${url.pathname}${url.search}${url.hash}`;
+  return `${url.pathname}${url.search}${url.hash}`;
 }

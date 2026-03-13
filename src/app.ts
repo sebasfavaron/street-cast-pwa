@@ -10,6 +10,7 @@ import {
   VideoLoadedEvent,
   AppError,
   ERROR_TYPES,
+  DEFAULT_CONFIG,
   RuntimeConfigSource,
 } from './types';
 import {
@@ -17,7 +18,7 @@ import {
   getQueryConfig,
   normalizeServerUrl,
   resolveConfigFromSources,
-  syncUrlWithConfig as buildConfigUrl,
+  syncUrlWithDefaults,
 } from './runtime-config';
 
 declare global {
@@ -109,7 +110,8 @@ export function syncUrlWithConfig(config: AppConfig): void {
     return;
   }
 
-  const nextUrl = buildConfigUrl(config, window.location.href);
+  void config;
+  const nextUrl = syncUrlWithDefaults(window.location.href);
   const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
   if (nextUrl === currentUrl) {
     return;
@@ -128,13 +130,13 @@ export class StreetCastApp {
   private isInitialized = false;
 
   constructor(config: Partial<AppConfig> = {}) {
+    syncUrlWithConfig(DEFAULT_CONFIG);
     this.config = resolveConfig(config);
     this.state = this.createInitialState();
     this.cacheManager = new CacheManager(this.config.cacheSize, this.config.maxVideos);
     this.videoManager = new VideoManager(this.cacheManager);
     this.impressionTracker = new ImpressionTracker(this.config);
 
-    syncUrlWithConfig(this.config);
     saveRuntimeConfig(this.config);
     this.setupEventListeners();
   }
