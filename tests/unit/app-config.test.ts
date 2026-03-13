@@ -1,8 +1,7 @@
-import { DEFAULT_CONFIG } from '@/types';
 import {
   getQueryConfig,
   resolveConfigFromSources,
-  syncUrlWithConfig,
+  syncUrlWithDefaults,
 } from '@/runtime-config';
 
 describe('app config', () => {
@@ -18,7 +17,7 @@ describe('app config', () => {
     expect(config.deviceId).toBe('tv-demo-01');
   });
 
-  test('writes missing defaults into the URL', () => {
+  test('writes only required defaults into the URL', () => {
     const config = resolveConfigFromSources({
       overrides: {},
       storedConfig: {},
@@ -26,14 +25,16 @@ describe('app config', () => {
       runtimeConfig: {},
       queryConfig: getQueryConfig(''),
     });
-    const nextUrl = syncUrlWithConfig(config, 'https://example.com/player');
+    const nextUrl = syncUrlWithDefaults('https://example.com/player');
     const params = new URL(nextUrl, 'https://example.com').searchParams;
 
-    expect(params.get('deviceId')).toBe(config.deviceId);
-    expect(params.get('serverUrl')).toBe(config.serverUrl);
-    expect(params.get('pollInterval')).toBe(String(config.pollInterval));
-    expect(params.get('cacheSize')).toBe(String(config.cacheSize));
-    expect(params.get('maxVideos')).toBe(String(config.maxVideos));
-    expect(params.get('deviceId')).toBe(DEFAULT_CONFIG.deviceId);
+    expect(config.deviceId).toBe('dev-device-1');
+    expect(config.serverUrl).toBe('https://street-cast-server.vercel.app');
+    expect(params.get('deviceId')).toBe('dev-device-1');
+    expect(params.get('serverUrl')).toBe('https://street-cast-server.vercel.app');
+    expect(params.get('debug')).toBe('true');
+    expect(params.has('pollInterval')).toBe(false);
+    expect(params.has('cacheSize')).toBe(false);
+    expect(params.has('maxVideos')).toBe(false);
   });
 });
