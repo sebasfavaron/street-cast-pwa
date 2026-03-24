@@ -220,9 +220,9 @@ export class StreetCastApp {
     this.setLoadingStatus(`Syncing device ${this.config.deviceId}...`);
 
     try {
-      const response = await fetch(`${getApiBaseUrl(this.config.serverUrl)}/api/manifest/${this.config.deviceId}`, {
-        cache: 'no-store',
-      });
+      const response = await fetch(
+        `${getApiBaseUrl(this.config.serverUrl)}/api/manifest/${this.config.deviceId}`
+      );
 
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
