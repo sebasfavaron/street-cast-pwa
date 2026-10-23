@@ -1,3 +1,5 @@
+> **Superseded (2026-10-23). No work is planned here.** Screens play from the ballbox.app web player ([`sebasfavaron/ballbox`](https://github.com/sebasfavaron/ballbox)) or from [`ballbox-signage-player-android`](https://github.com/sebasfavaron/ballbox-signage-player-android).
+
 # Street Cast PWA
 
 A Progressive Web App for displaying advertising content on connected screens. Preferred deployment path: host the PWA on Vercel and point it at the real `street-cast-server` deployment.
